@@ -1,0 +1,13 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+const root = new URL("../",import.meta.url);
+const manifest = JSON.parse(await readFile(new URL("plugin.json",root),"utf8"));
+const pkg = JSON.parse(await readFile(new URL("package.json",root),"utf8"));
+if (pkg.version !== manifest.version) throw new Error("Package and plugin versions differ");
+const {$schema,extensions,...compat} = manifest;
+await mkdir(new URL(".claude-plugin/",root),{recursive:true});
+await writeFile(new URL(".claude-plugin/plugin.json",root),JSON.stringify(compat,null,2)+"\n");
+const mcp = JSON.parse(await readFile(new URL("mcp.json",root),"utf8"));
+const servers = JSON.parse(JSON.stringify(mcp.mcpServers).replaceAll("${PLUGIN_ROOT}","${CLAUDE_PLUGIN_ROOT}"));
+await writeFile(new URL(".mcp.json",root),JSON.stringify({mcpServers:servers},null,2)+"\n");
+const result = await Bun.build({entrypoints:["./src/server.ts"],outdir:"./dist",target:"bun",format:"esm",minify:false});
+if (!result.success) throw new AggregateError(result.logs,"MCP bundle failed");

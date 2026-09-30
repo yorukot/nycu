@@ -1,0 +1,18 @@
+{
+  "name": "@zyx1121/nycu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test && uv run tests/test_config.py && uv run tests/test_parttime.py && uv run tests/test_e3p.py && uv run tests/test_portal.py",
+    "check": "bun run build && bun run typecheck && bun run test"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2",
+    "zod": "4.6.5"
+  }
+}
