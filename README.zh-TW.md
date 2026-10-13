@@ -1,88 +1,116 @@
-<!-- 翻譯自 README.md @ docs/readme-template-v2。只翻 "For AI agents" 以上的章節，英文版更新時一起改。 -->
+<!-- 翻譯自 README.md。只翻 "For AI agents" 以上的章節，英文版更新時一起改。 -->
 
 <div align="center">
 
 <h1>NYCU</h1>
 
-<p><strong>把陽明交大入口網站、E3、課表和兼任簽到變成 agent 能用的 MCP 工具。</strong></p>
+<p><strong>把陽明交大 E3 和課表變成遠端 MCP server，給 ChatGPT、Claude 和其他 agent 用。</strong></p>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/zyx1121/nycu/check.yml?branch=main&style=flat-square&label=CI)](https://github.com/zyx1121/nycu/actions)
-[![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square)](https://github.com/zyx1121/marketplace)
-[![License](https://img.shields.io/github/license/zyx1121/nycu?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/yorukot/nycu/check.yml?branch=main&style=flat-square&label=CI)](https://github.com/yorukot/nycu/actions)
+[![Go](https://img.shields.io/github/go-mod/go-version/yorukot/nycu?style=flat-square)](go.mod)
+[![License](https://img.shields.io/github/license/yorukot/nycu?style=flat-square)](LICENSE)
 
-[English](README.md) | **繁體中文** | [简体中文](README.zh-CN.md)
+[English](README.md) | **繁體中文**
 
 </div>
 
 ```console
-$ timetable_list_semesters
-{"data": ["1151", "114X", "1142", "1141", "113X", ...], "metadata": {"count": 83}}
+$ timetable_lookup_courses {"cos_ids": [516706, "535702"]}
+{"data":[{"cos_id":"516706","name":"向量微積分","time":"R56-SA320[GF]",...},
+         {"cos_id":"535702","name":"資料探勘","time":"T56-EC115[GF]",...}],
+ "metadata":{"acysem":"1151","count":2,"missing":[]}}
 ```
 
-陽明交大的學生要在三個網站之間切換：E3 課程、課表和兼任簽到。這個 plugin 給 Codex 和 Claude Code 26 個工具，所有會寫入的工具都要明確確認。
+陽明交大的課業資訊分散在 E3（Moodle）和公開課表兩個地方。這個 server 給 agent 17 個唯讀工具，同時涵蓋兩邊。它是一個 Go 執行檔，不需要資料庫，設計上部署在 Dokploy，再透過 OAuth 接到 ChatGPT（包含 Dots）。
 
 ## 功能
 
-- **讀 E3**：課程、作業、期限、成績、繳交紀錄和教材下載(9 個工具)。
-- **查公開課表**：課程、上課時間和節次，不用登入(4 個工具)。
-- **使用入口網站登入**：透過陽明交大單一登入查身分、系統和活動(5 個工具)。
-- **兼任簽到**：狀態、簽到和簽退，有 `confirm` 和 `dry_run`(3 個工具)。
-- **依平台註冊**：macOS 有全部 26 個工具，Linux 有 E3 和課表的 18 個。
+- **讀 E3**：課程、作業、期限、公告與回覆、最近的變動、通知、測驗、繳交狀態、成績、課程大綱和檔案下載（13 個工具）。
+- **查公開課表**：學期、課程搜尋、用 cos_id 查課和節次表（4 個工具）。
+- **遠端 MCP**：在 `/mcp` 提供 Streamable HTTP，可以接 ChatGPT 的自訂 MCP server、Claude Code 和其他 MCP client。
+- **內建 OAuth 2.1**：支援動態註冊 client、PKCE 和 refresh token。每個 client 用同一組擁有者密碼核准，伺服器不存任何資料。
+- **唯讀**：沒有任何工具會寫入 E3。token 不會出現在工具輸出、錯誤訊息或 log 裡。
 
 ## 快速開始
 
-```sh
-claude plugin marketplace add zyx1121/marketplace
-claude plugin install nycu@zyx1121
-```
+1. **在自己的電腦上取得 E3 token**。指令會提示輸入密碼，輸入時不顯示，密碼只會送到 E3。
 
-Codex：先 `codex plugin marketplace add zyx1121/marketplace`，再 `codex plugin add nycu@zyx1121`。開新的對話，問它「這週有哪些 E3 作業要交？」。
+   ```sh
+   go run github.com/yorukot/nycu/cmd/nycu@latest e3-token
+   ```
 
-需要 Bun 1.3.13 以上、uv 和 Python 3.11 以上，Python 可以交給 uv 安裝。MCP server 已經打包好，plugin 目錄不需要 `bun install`。
+   在 clone 下來的 repo 裡執行 `go run ./cmd/nycu e3-token` 也可以。它會印出 `E3_TOKEN=…` 和 `E3_USERID=…`。
+2. **部署到 Dokploy**：
+   1. 建立一個 Application，來源選 GitHub 的 `yorukot/nycu`，分支 `main`，Build type 選 **Dockerfile**。
+   2. 填入[設定](#設定)裡的環境變數。`AUTH_SECRET` 用 `openssl rand -base64 48` 產生。
+   3. 在 **Domains** 加上你的網域，開啟 HTTPS，container port 填 `8080`。`PUBLIC_URL` 設成同一個 `https://` 網址。
+   4. 部署。完成後 `https://<網域>/healthz` 應該回傳 `ok`。
+3. **接上 ChatGPT**：
+   1. 在 ChatGPT 打開 **Plugins**，按 **+**，選 **Add custom MCP server**。依方案不同，可能要先開啟開發者模式才能加自訂 server。
+   2. URL 填 `https://<網域>/mcp`，驗證方式選 **OAuth**。
+   3. ChatGPT 會開啟 server 的授權頁，在那裡輸入 `OWNER_PASSWORD`。
+   4. 之後 Dot 就能使用這個 plugin。可以問它：「這週有哪些 E3 作業要交？」
+4. **或接上 Claude Code**：執行 `claude mcp add --transport http nycu https://<網域>/mcp`，再用 `/mcp` 登入。
 
 ## 使用方式
 
-| 服務 | 工具 | 需要 |
-|------|------|------|
-| E3 | `e3p_whoami`、`e3p_list_courses`、`e3p_list_assignments`、`e3p_list_due`、`e3p_list_announcements`、`e3p_get_discussion`、`e3p_list_updates`、`e3p_list_notifications`、`e3p_list_quizzes`、`e3p_get_submission`、`e3p_list_grades`、`e3p_get_content`、`e3p_download_file`、`e3p_logout` | E3 權杖，macOS 或 Linux |
-| 課表 | `timetable_list_semesters`、`timetable_search_courses`、`timetable_lookup_courses`、`timetable_get_periods` | 不需要，macOS 或 Linux |
-| 入口網站 | `nycu_setup`、`nycu_whoami`、`nycu_list_systems`、`nycu_list_events`、`nycu_logout` | macOS 鑰匙圈和 Playwright Chromium |
-| 簽到 | `parttime_get_status`、`parttime_sign_in`、`parttime_sign_out` | 入口網站登入和校內網路 |
+| 服務 | 工具 |
+|------|------|
+| E3 | `e3p_whoami`、`e3p_list_courses`、`e3p_list_assignments`、`e3p_list_due`、`e3p_list_announcements`、`e3p_get_discussion`、`e3p_list_updates`、`e3p_list_notifications`、`e3p_list_quizzes`、`e3p_get_submission`、`e3p_list_grades`、`e3p_get_content`、`e3p_download_file` |
+| 課表 | `timetable_list_semesters`、`timetable_search_courses`、`timetable_lookup_courses`、`timetable_get_periods` |
 
-- **E3 登入**：在 plugin 目錄執行一次 `uv run scripts/e3p.py login`。密碼用隱藏提示輸入，不會經過對話。
-- **入口網站登入**：把學號和密碼存進鑰匙圈項目 `kilo/nycu-portal`，`otpauth://` URI 存進 `kilo/nycu-totp`。再請 agent 執行 `nycu_setup` 準備 Chromium。
-- **簽到**：`parttime_sign_in` 和 `parttime_sign_out` 會寫入真實的出勤紀錄，需要 `confirm=true`。先用 `dry_run` 試。
+- 每個結果的格式都一樣：成功時是 `{"data": …, "metadata": {…}}`；失敗時是 `{"error": {"message", "why", "hint"}}`，並帶有 `isError`。
+- `cos_id` 是 E3 課程 shortname 點號後面那一段。例如 `1151.535702` 代表 acysem 是 `1151`、cos_id 是 `535702`，所以可以直接拿 `e3p_list_courses` 的結果去呼叫 `timetable_lookup_courses`。
+- `e3p_download_file` 接受從 `e3p_get_content`、`e3p_list_announcements` 或 `e3p_get_discussion` 拿到的 `pluginfile.php` URL，並把檔案以 embedded resource 回傳：文字檔回傳文字，其他檔案回傳 base64。
+- 字串太長時結果會被截短。文字中會出現 `truncated` 標記，結果也會多一個 `_truncation` 欄位，列出被截短的欄位，並說明怎麼縮小查詢範圍。
 
 ## 設定
 
-| 設定 | 位置 | 預設 |
-|------|------|------|
-| 入口網站權杖 | `NYCU_PORTAL_CONFIG` | `~/.config/nycu/portal.json` |
-| E3 權杖 | `NYCU_E3P_CONFIG` | `~/.config/nycu/e3p.json` |
-| E3 覆寫 | `NYCU_E3P_TOKEN`、`NYCU_E3P_USERID`、`NYCU_E3P_BASE`、`NYCU_E3P_SERVICE` | 取自 E3 權杖檔 |
-| 入口網站密碼 | 鑰匙圈 `kilo/nycu-portal`，帳號是學號 | 入口網站工具必填 |
-| 入口網站 TOTP | 鑰匙圈 `kilo/nycu-totp`，帳號是學號 | 入口網站工具必填 |
-| 平台覆寫(僅測試用) | `NYCU_FORCE_PLATFORM` | 實際平台 |
+| 變數 | 必填 | 預設 | 用途 |
+|------|------|------|------|
+| `PUBLIC_URL` | 是 | | 對外網址，例如 `https://nycu.example.com`，OAuth metadata 會用到。 |
+| `OWNER_PASSWORD` | 是 | | 授權頁的密碼，至少 12 個字元。 |
+| `AUTH_SECRET` | 是 | | 簽署 client ID、code 和 token 的金鑰，至少 32 bytes。換掉它會讓所有登入失效。 |
+| `E3_TOKEN` | 是 | | 用 `nycu e3-token` 取得的 E3 Web Services token。 |
+| `E3_USERID` | 否 | 自動查詢 | 你的 E3 使用者 ID，設定後可以省一次查詢。 |
+| `E3_BASE` | 否 | `https://e3p.nycu.edu.tw` | Moodle 網站根網址。 |
+| `PORT` | 否 | `8080` | 監聽的 port。 |
+| `E3_DOWNLOAD_MAX_BYTES` | 否 | `10485760` | `e3p_download_file` 能回傳的最大檔案大小。 |
+| `MCP_MAX_STRING_CHARS` / `MCP_MAX_TOTAL_CHARS` | 否 | `20000` / `120000` | 單次結果的截短上限。 |
 
-權杖檔權限是 600，會遵循 `XDG_CONFIG_HOME`。舊的 `UTILS_NYCU_CONFIG`、`UTILS_E3P_CONFIG` 和 `UTILS_E3P_*` 仍然有效，但 `NYCU_*` 優先。
+E3 token 可以讀取你整個 E3 帳號，請只放在 Dokploy 的環境變數裡。要撤銷它，到 E3 的 **偏好設定 → 安全金鑰** 重設金鑰，再重新執行 `nycu e3-token`。
 
 ## 運作方式
 
-Bun 的 MCP server 啟動時依平台註冊工具，只看平台和 uv，不會登入或連線。每次呼叫都透過 uv 執行一支 Python 腳本，每支腳本都在檔案內宣告自己的套件(PEP 723)。
-
-- 入口網站的快取權杖過期時會重新登入一次，還是失敗就回報錯誤。
-- E3 下載只會把權杖送到已設定的 Moodle `pluginfile` HTTPS 網址，會拒絕跨來源的轉址，錯誤訊息也不會包含帶權杖的網址。
+- **無狀態的 server**：一個 Go 程序同時提供 `/mcp`、OAuth endpoints 和 `/healthz`。MCP 跑在無狀態的 Streamable HTTP 模式。
+- **沒有帶 token 的請求**：沒有有效 access token 的 `/mcp` 請求會收到 401，`WWW-Authenticate` header 指向 `/.well-known/oauth-protected-resource/mcp`。client 從那裡找到授權 server，並自行註冊。
+- **簽章值**：client ID、code 和 token 都用 `AUTH_SECRET` 做 HMAC 簽章。code 有效 1 分鐘，access token 1 小時，refresh token 30 天，而且 refresh token 每次使用後都會換新。用過的 code、用過的 refresh token 和輸錯的密碼次數都記在記憶體裡。同一個位址 15 分鐘內輸錯 5 次密碼，就會被鎖 15 分鐘。
+- **呼叫 E3**：server 透過 Moodle Web Services REST API 存取 E3，token 放在 POST body 裡。需要對每門課、每份作業或每個測驗各呼叫一次的操作，最多 4 個同時進行。
+- **下載的安全性**：`e3p_download_file` 只會把 token 送到設定好的 E3 網域上、走 HTTPS 的 `pluginfile.php` URL。每一次 redirect 都會用同樣的規則重新檢查。
 
 ## 限制
 
-- 簽到寫入是真的。逾時不代表已經回滾，逾時後請呼叫 `parttime_get_status` 確認。
-- 簽到需要校內網路，因為打卡系統只能從校內連線。
-- 入口網站和簽到工具需要 macOS，因為要用鑰匙圈。
+- **只給一個人用**：一個 server 只對應一個 E3 token。多人使用的話，每人各部署一個。
+- **只跑一個 replica**：防止 code 重放的紀錄和密碼錯誤次數都存在記憶體，重新啟動就會清空。
+- **只有 E3 上的資料**：E3 只會有老師放上去的東西。只在課堂上宣布的期限不會出現在 `e3p_list_due`。
+- **沒有入口網站和兼任簽到**：原本 plugin 的入口網站和兼任簽到工具已經移除。
 
-## 其他
+## For AI agents
 
-給 AI agent 的結構化資訊與開發說明在[英文版](README.md#for-ai-agents)。
+給 coding agent 和 LLM 工具看的資訊，請見[英文版](README.md#for-ai-agents)。
+
+## 開發
+
+```sh
+gofmt -l .
+go vet ./...
+go test -race ./...
+```
+
+測試都用合成資料，所以 CI 不需要 NYCU 帳號。加上 `NYCU_LIVE=1 go test ./internal/...` 會額外呼叫真的課表和 E3；如果同時設定 `E3_TOKEN`，還會跑唯讀的 E3 查詢。
+
+本機執行時，設定 `PUBLIC_URL=http://localhost:8080` 和其他變數，再執行 `go run ./cmd/nycu`。
 
 ## 授權
 
-[MIT](LICENSE)
+[MIT](LICENSE)。改寫自 [zyx1121/nycu](https://github.com/zyx1121/nycu)。
