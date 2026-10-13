@@ -35178,6 +35178,28 @@ var e3pTools = [
     }
   }),
   scriptTool({
+    name: "e3p_list_announcements",
+    description: "List recent posts from the announcements forum of one course or all visible enrolled courses, newest first, with the full message text and attachment URLs (input to e3p_download_file).",
+    inputSchema: {
+      courseid: exports_external.number().optional().describe("Course ID. Omit for all visible courses."),
+      days: exports_external.number().optional().describe("Look-back days. Default: 30."),
+      limit: exports_external.number().optional().describe("Maximum posts per course. Default: 20.")
+    },
+    annotations: read,
+    script,
+    requires,
+    envelope,
+    timeoutMs,
+    truncationHint: "pass courseid to scope to one course, or lower days",
+    buildArgs: (input2) => {
+      const argv = ["announcements"];
+      pushPos(argv, input2.courseid);
+      pushFlag(argv, "--days", input2.days);
+      pushFlag(argv, "--limit", input2.limit);
+      return argv;
+    }
+  }),
+  scriptTool({
     name: "e3p_get_submission",
     description: "Get detailed submission status for one assignment.",
     inputSchema: { assignid: exports_external.number().describe("Assignment ID.") },
@@ -35439,7 +35461,7 @@ var allTools = [...e3pTools, ...nycuTools, ...parttimeTools, ...timetableTools];
 var plugin_default = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   name: "nycu",
-  version: "0.2.0",
+  version: "0.3.0",
   description: "NYCU portal, E3 coursework, public timetable and part-time attendance through MCP.",
   author: {
     name: "zyx1121",
