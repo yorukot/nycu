@@ -1,0 +1,8 @@
+.git
+.github
+.claude
+*.md
+Dockerfile
+.dockerignore
+.env
+.env.*

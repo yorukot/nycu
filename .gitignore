@@ -1,6 +1,6 @@
-node_modules/
-__pycache__/
-*.pyc
+/nycu
+*.test
+*.out
 .DS_Store
 .env
 .env.*
